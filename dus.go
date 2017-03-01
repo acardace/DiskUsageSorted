@@ -1,12 +1,21 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"sort"
+	"text/tabwriter"
 )
+
+type flagArgs struct {
+	ascendingOrder bool
+	help           bool
+}
 
 type bySize struct{ file []os.FileInfo }
 
@@ -22,24 +31,30 @@ func (f *bySize) Swap(i, j int) {
 	f.file[i], f.file[j] = f.file[j], f.file[i]
 }
 
-func usagePrint(info os.FileInfo) (out string) {
+func infoPrint(info os.FileInfo, w io.Writer) {
+	var err error
 	size := info.Size()
 	if 0 < size && size < 1000 {
-		out = fmt.Sprintf("%s %dB", info.Name(), size)
+		_, err = fmt.Fprintf(w, "%s\t%dB\t\n", info.Name(), size)
 	} else if 1000 <= size && size < 1000000 {
-		out = fmt.Sprintf("%s %.2fKB", info.Name(), float64(size)/1000.0)
+		_, err = fmt.Fprintf(w, "%s\t%.2fKB\t\n", info.Name(), float64(size)/1000.0)
 	} else if 1000000 <= size && size < 1000000000 {
-		out = fmt.Sprintf("%s %.2fMB", info.Name(), float64(size)/1000000.0)
+		_, err = fmt.Fprintf(w, "%s\t%.2fMB\t\n", info.Name(), float64(size)/1000000.0)
 	} else if 1000000000 <= size && size < 1000000000000 {
-		out = fmt.Sprintf("%s %.2fGB", info.Name(), float64(size)/1000000000.0)
+		_, err = fmt.Fprintf(w, "%s\t%.2fGB\t\n", info.Name(), float64(size)/1000000000.0)
 	}
-	return
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func usage() {
 	usageString := `Usage: du [OPTION]... [FILE]...
-Summarize disk usage of the set of FILEs.`
+Summarize disk usage of the set of FILEs.
+
+Arguments:`
 	fmt.Println(usageString)
+	flag.PrintDefaults()
 }
 
 func duDir(path string) {
@@ -47,26 +62,45 @@ func duDir(path string) {
 	if error != nil {
 		log.Fatal(error)
 	}
-	sort.Sort(sort.Reverse(&bySize{files}))
-	for _, f := range files {
-		fmt.Println(usagePrint(f))
+	if args.ascendingOrder {
+		sort.Sort(&bySize{files})
+	} else {
+		sort.Sort(sort.Reverse(&bySize{files}))
 	}
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+	for _, f := range files {
+		infoPrint(f, w)
+	}
+	if error = w.Flush(); error != nil {
+		log.Fatal(error)
+	}
+	fmt.Print(buf.String())
+}
+
+// cmdline arguments
+var args flagArgs
+
+func init() {
+	flag.BoolVar(&args.ascendingOrder, "asc", false, "sort entries in ascending order")
+	flag.BoolVar(&args.help, "help", false, "display this help and exit")
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	flag.Parse()
+	if args.help || len(flag.Args()) < 1 {
 		usage()
 		os.Exit(1)
 	}
-	fileInfo, error := os.Stat(os.Args[1])
+	fileInfo, error := os.Stat(flag.Arg(0))
 	if error != nil {
 		log.Fatal(error)
 	}
 	switch mode := fileInfo.Mode(); {
 	case mode.IsDir():
-		duDir(os.Args[1])
+		duDir(flag.Arg(0))
 	case mode.IsRegular():
-		fmt.Println(usagePrint(fileInfo))
+		infoPrint(fileInfo, os.Stdout)
 	}
 
 }
