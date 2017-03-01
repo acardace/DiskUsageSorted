@@ -56,6 +56,7 @@ func duDir(path string) {
 func main() {
 	if len(os.Args) < 2 {
 		usage()
+		os.Exit(1)
 	}
 	fileInfo, error := os.Stat(os.Args[1])
 	if error != nil {
